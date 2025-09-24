@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dino Runner - Fullscreen</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: #fff;
+    }
+    canvas { 
+      display: block; 
+      width: 100vw; 
+      height: 100vh;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Fullscreen
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let groundHeight = 120; 
+    let gameSpeed = 6; 
+    let gravity = 0.6;
+    let score = 0;
+    let highScore = 0;
+    let previousScore = 0; 
+    let gameOver = false;
+    let win = false;
+    const WIN_SCORE = 15; 
+
+    // 🎵 Sound Effects
+    const jumpSound = new Audio("https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg");
+    const gameOverSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang.ogg");
+    const winSound = new Audio("https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg");
+
+    // Dino
+    class Dino {
+      constructor() {
+        this.width = 70;
+        this.height = 70;
+        this.x = 100;
+        this.y = canvas.height - groundHeight - this.height;
+        this.dy = 0;
+        this.jumpForce = 18;
+        this.grounded = true;
+        this.legFrame = 0;
+        this.tailFrame = 0;
+      }
+      draw() {
+        ctx.fillStyle = "#808080"; 
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+
+        // head
+        ctx.fillRect(this.x + 40, this.y - 15, 28, 28);
+
+        // eye
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(this.x + 60, this.y - 4, 8, 8);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(this.x + 62, this.y - 2, 4, 4);
+
+        // animated legs
+        ctx.fillStyle = "#808080";
+        if (this.legFrame < 15) {
+          ctx.fillRect(this.x + 10, this.y + this.height - 10, 18, 18);
+          ctx.fillRect(this.x + 45, this.y + this.height - 5, 18, 18);
+        } else {
+          ctx.fillRect(this.x + 10, this.y + this.height - 5, 18, 18);
+          ctx.fillRect(this.x + 45, this.y + this.height - 10, 18, 18);
+        }
+
+        // animated tail wag
+        if (this.tailFrame < 20) {
+          ctx.fillRect(this.x - 22, this.y + 20, 20, 15);
+        } else {
+          ctx.fillRect(this.x - 22, this.y + 28, 20, 15);
+        }
+      }
+      jump() {
+        if (this.grounded) {
+          this.dy = -this.jumpForce;
+          this.grounded = false;
+          jumpSound.currentTime = 0;
+          jumpSound.play();
+        }
+      }
+      update() {
+        this.y += this.dy;
+        if (this.y + this.height < canvas.height - groundHeight) {
+          this.dy += gravity;
+        } else {
+          this.y = canvas.height - groundHeight - this.height;
+          this.dy = 0;
+          this.grounded = true;
+        }
+
+        if (this.grounded) {
+          this.legFrame = (this.legFrame + 1) % 30;
+          this.tailFrame = (this.tailFrame + 1) % 40;
+        }
+
+        this.draw();
+      }
+    }
+
+    // Bush obstacle (pixelated jagged shape)
+    class Bush {
+      constructor(x, width, height) {
+        this.x = x;
+        this.width = width;
+        this.height = height;
+        this.y = canvas.height - groundHeight - this.height;
+      }
+      draw() {
+        ctx.fillStyle = "green";
+        // main rectangle
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+
+        // jagged "spikes" on top
+        let spikeSize = 8;
+        for (let i = 0; i < this.width; i += spikeSize) {
+          let spikeHeight = Math.random() * 15 + 5; // random spike height
+          ctx.fillRect(this.x + i, this.y - spikeHeight, spikeSize, spikeHeight);
+        }
+      }
+      update() {
+        this.x -= gameSpeed;
+        this.draw();
+      }
+    }
+
+    // Clouds
+    class Cloud {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+      }
+      draw() {
+        ctx.fillStyle = "pink";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 30, 0, Math.PI * 2);
+        ctx.arc(this.x + 35, this.y + 12, 35, 0, Math.PI * 2);
+        ctx.arc(this.x + 70, this.y, 30, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      update() {
+        this.x -= 2;
+        if (this.x + 100 < 0) {
+          this.x = canvas.width + 100;
+          this.y = 60 + Math.random() * 200;
+        }
+        this.draw();
+      }
+    }
+
+    function drawGround() {
+      ctx.strokeStyle = "#808080"; 
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height - groundHeight);
+      ctx.lineTo(canvas.width, canvas.height - groundHeight);
+      ctx.stroke();
+    }
+
+    let dino = new Dino();
+    let obstacles = [];
+    let clouds = [new Cloud(400, 120), new Cloud(900, 180), new Cloud(1400, 100)];
+    let frame = 0;
+
+    function spawnObstacle() {
+      let width = 40 + Math.random() * 50;
+      let height = 40 + Math.random() * 50;
+      obstacles.push(new Bush(canvas.width, width, height));
+    }
+
+    function resetGame() {
+      previousScore = score; 
+      dino = new Dino();
+      obstacles = [];
+      score = 0;
+      gameSpeed = 6;
+      gameOver = false;
+      win = false;
+      frame = 0;
+      loop();
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        if (gameOver || win) {
+          resetGame();
+        } else {
+          dino.jump();
+        }
+      }
+    });
+
+    // Mobile tap
+    document.addEventListener("touchstart", () => {
+      if (gameOver || win) {
+        resetGame();
+      } else {
+        dino.jump();
+      }
+    });
+
+    function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      clouds.forEach(cloud => cloud.update());
+      drawGround();
+      dino.update();
+
+      if (frame % 120 === 0 && !win) spawnObstacle();
+
+      for (let i = 0; i < obstacles.length; i++) {
+        let obs = obstacles[i];
+        obs.update();
+
+        if (
+          dino.x < obs.x + obs.width &&
+          dino.x + dino.width > obs.x &&
+          dino.y < obs.y + obs.height &&
+          dino.y + dino.height > obs.y
+        ) {
+          if (!gameOver) {
+            gameOverSound.currentTime = 0;
+            gameOverSound.play();
+          }
+          gameOver = true;
+        }
+
+        if (obs.x + obs.width < 0) {
+          obstacles.splice(i, 1);
+          score++;
+          if (score > highScore) highScore = score;
+          gameSpeed += 0.05;
+          if (score >= WIN_SCORE) {
+            if (!win) {
+              winSound.currentTime = 0;
+              winSound.play();
+            }
+            win = true;
+          }
+        }
+      }
+
+      // Score text left
+      ctx.fillStyle = "#333";
+      ctx.font = "28px Arial";
+      ctx.fillText("Score: " + score, 20, 50);
+      ctx.fillText("Best Score: " + highScore, 20, 90);
+
+      // Win score right
+      ctx.fillText("Win Score: " + WIN_SCORE, canvas.width - 220, 50);
+
+      if (gameOver) {
+        ctx.fillStyle = "#333";
+        ctx.font = "64px Arial";
+        ctx.fillText("GAME OVER", canvas.width/2 - 200, canvas.height/2);
+        ctx.font = "28px Arial";
+        ctx.fillText("Press Space to Restart", canvas.width/2 - 160, canvas.height/2 + 50);
+        if (previousScore > 0) {
+          ctx.font = "24px Arial";
+          ctx.fillText("Previous Score: " + previousScore, canvas.width/2 - 120, canvas.height/2 + 100);
+        }
+        return;
+      }
+
+      if (win) {
+        ctx.fillStyle = "#333";
+        ctx.font = "64px Arial";
+        ctx.fillText("YOU WIN 🎉", canvas.width/2 - 200, canvas.height/2);
+        ctx.font = "28px Arial";
+        ctx.fillText("Press Space to Play Again", canvas.width/2 - 180, canvas.height/2 + 50);
+        if (previousScore > 0) {
+          ctx.font = "24px Arial";
+          ctx.fillText("Previous Score: " + previousScore, canvas.width/2 - 120, canvas.height/2 + 100);
+        }
+        return;
+      }
+
+      frame++;
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
