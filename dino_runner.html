@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dino Runner - Easy</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: #87ceeb; 
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      height: 100vh;
+    }
+    h1 {
+      font-size: 48px;
+      font-family: Arial, sans-serif;
+      color: #222;
+      margin: 20px;
+      text-shadow: 3px 3px 6px rgba(0,0,0,0.3);
+    }
+    canvas { 
+      display: block; 
+      background: #eafafc; 
+      border: 15px solid #333;   /* big dark frame */
+      border-radius: 20px;       /* smooth corners */
+      box-shadow: 0 0 40px rgba(0,0,0,0.5); /* glowing shadow */
+    }
+    a {
+      color: blue;
+      font-size: 18px;
+      text-decoration: underline;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Game Title -->
+  <h1>🦖 Dino Runner Game</h1>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- ChatGPT Link -->
+  <a href="https://chatgpt.com/share/68c272c5-6b24-8008-9b67-270ce83e8e0e" target="_blank">
+    🔗 ChatGPT Conversation Link
+  </a>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Fixed size inside frame
+    canvas.width = 1000;
+    canvas.height = 500;
+
+    let groundHeight = 100;
+    let gameSpeed = 6; 
+    let gravity = 0.6;
+    let score = 0;
+    let highScore = 0;
+    let gameOver = false;
+    let win = false;
+    const WIN_SCORE = 10; 
+
+    // Dino
+    class Dino {
+      constructor() {
+        this.width = 60;
+        this.height = 60;
+        this.x = 80;
+        this.y = canvas.height - groundHeight - this.height;
+        this.dy = 0;
+        this.jumpForce = 15;
+        this.grounded = true;
+      }
+      draw() {
+        ctx.fillStyle = "green";
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        // head
+        ctx.fillRect(this.x + 40, this.y - 15, 25, 25);
+        // eye
+        ctx.fillStyle = "white";
+        ctx.fillRect(this.x + 55, this.y - 5, 8, 8);
+        ctx.fillStyle = "black";
+        ctx.fillRect(this.x + 57, this.y - 3, 4, 4);
+        // legs
+        ctx.fillStyle = "darkgreen";
+        ctx.fillRect(this.x + 10, this.y + 55, 15, 15);
+        ctx.fillRect(this.x + 35, this.y + 55, 15, 15);
+        // tail
+        ctx.fillRect(this.x - 20, this.y + 20, 20, 15);
+      }
+      jump() {
+        if (this.grounded) {
+          this.dy = -this.jumpForce;
+          this.grounded = false;
+        }
+      }
+      update() {
+        this.y += this.dy;
+        if (this.y + this.height < canvas.height - groundHeight) {
+          this.dy += gravity;
+        } else {
+          this.y = canvas.height - groundHeight - this.height;
+          this.dy = 0;
+          this.grounded = true;
+        }
+        this.draw();
+      }
+    }
+
+    // Cactus
+    class Cactus {
+      constructor(x, width, height) {
+        this.x = x;
+        this.y = canvas.height - groundHeight - height;
+        this.width = width;
+        this.height = height;
+      }
+      draw() {
+        ctx.fillStyle = "darkgreen";
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillRect(this.x - 8, this.y + 10, 10, 30);
+        ctx.fillRect(this.x + this.width - 2, this.y + 5, 10, 30);
+      }
+      update() {
+        this.x -= gameSpeed;
+        this.draw();
+      }
+    }
+
+    // Clouds
+    class Cloud {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+      }
+      draw() {
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 25, 0, Math.PI * 2);
+        ctx.arc(this.x + 30, this.y + 10, 30, 0, Math.PI * 2);
+        ctx.arc(this.x + 60, this.y, 25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      update() {
+        this.x -= 2;
+        if (this.x + 60 < 0) {
+          this.x = canvas.width + 100;
+          this.y = 50 + Math.random() * 150;
+        }
+        this.draw();
+      }
+    }
+
+    function drawGround() {
+      ctx.fillStyle = "#c2b280";
+      ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+    }
+
+    let dino = new Dino();
+    let obstacles = [];
+    let clouds = [new Cloud(300, 100), new Cloud(800, 150), new Cloud(1200, 80)];
+    let frame = 0;
+
+    function spawnObstacle() {
+      let width = 30 + Math.random() * 30;
+      let height = 40 + Math.random() * 50;
+      obstacles.push(new Cactus(canvas.width, width, height));
+    }
+
+    function resetGame() {
+      dino = new Dino();
+      obstacles = [];
+      score = 0;
+      gameSpeed = 6;
+      gameOver = false;
+      win = false;
+      frame = 0;
+      loop();
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        if (gameOver || win) {
+          resetGame();
+        } else {
+          dino.jump();
+        }
+      }
+    });
+
+    function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      clouds.forEach(cloud => cloud.update());
+      drawGround();
+      dino.update();
+
+      if (frame % 120 === 0 && !win) spawnObstacle();
+
+      for (let i = 0; i < obstacles.length; i++) {
+        let obs = obstacles[i];
+        obs.update();
+
+        if (
+          dino.x < obs.x + obs.width &&
+          dino.x + dino.width > obs.x &&
+          dino.y < obs.y + obs.height &&
+          dino.y + dino.height > obs.y
+        ) gameOver = true;
+
+        if (obs.x + obs.width < 0) {
+          obstacles.splice(i, 1);
+          score++;
+          if (score > highScore) highScore = score;
+          gameSpeed += 0.05;
+          if (score >= WIN_SCORE) win = true;
+        }
+      }
+
+      ctx.fillStyle = "black";
+      ctx.font = "28px Arial";
+      ctx.fillText("Score: " + score, canvas.width - 200, 50);
+      ctx.fillText("Best: " + highScore, canvas.width - 200, 90);
+      ctx.fillStyle = "darkred";
+      ctx.fillText("🎯 Goal: Reach Score " + WIN_SCORE + " to Win!", 20, 50);
+
+      if (gameOver) {
+        ctx.fillStyle = "red";
+        ctx.font = "60px Arial";
+        ctx.fillText("GAME OVER", canvas.width/2 - 180, canvas.height/2 - 40);
+        ctx.fillStyle = "black";
+        ctx.font = "40px Arial";
+        ctx.fillText("Final Score: " + score, canvas.width/2 - 140, canvas.height/2 + 20);
+        ctx.font = "30px Arial";
+        ctx.fillText("Press Space to Restart", canvas.width/2 - 160, canvas.height/2 + 80);
+        return;
+      }
+
+      if (win) {
+        ctx.fillStyle = "green";
+        ctx.font = "60px Arial";
+        ctx.fillText("YOU WIN! 🎉", canvas.width/2 - 150, canvas.height/2 - 40);
+        ctx.fillStyle = "black";
+        ctx.font = "40px Arial";
+        ctx.fillText("Final Score: " + score, canvas.width/2 - 140, canvas.height/2 + 20);
+        ctx.font = "30px Arial";
+        ctx.fillText("Press Space to Play Again", canvas.width/2 - 180, canvas.height/2 + 80);
+        return;
+      }
+
+      frame++;
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
