@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CSV Analyzer — Single File (GitHub Pages ready)</title>
+  <style>
+    :root{--bg:#fafafa;--card:#fff;--muted:#666;--accent:#246;--danger:#a33}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, Arial, sans-serif;background:var(--bg);color:#111}
+    .wrap{max-width:1150px;margin:28px auto;padding:18px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    h1{margin:0;font-size:1.25rem}
+    p.lead{margin:4px 0 0;color:var(--muted);font-size:0.95rem}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-top:16px}
+    .card{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 6px 20px rgba(20,20,40,0.04)}
+    .controls{display:flex;flex-direction:column;gap:8px}
+    label{font-size:0.85rem;color:var(--muted)}
+    input[type=file]{display:block}
+    .small{font-size:0.85rem;color:var(--muted)}
+    table{width:100%;border-collapse:collapse;font-size:0.9rem}
+    th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}
+    th{font-weight:600;background:linear-gradient(90deg, rgba(0,0,0,0.01), transparent)}
+    .muted{color:var(--muted)}
+    .kpi{display:flex;gap:12px;flex-wrap:wrap}
+    .kpi .item{min-width:120px;border-radius:8px;padding:8px;background:linear-gradient(180deg,#fff,#fbfbff);box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+    .actions{display:flex;gap:8px;align-items:center}
+    select,input[type=text],input[type=number]{width:100%;padding:6px;border-radius:6px;border:1px solid #ddd}
+    .table-wrap{max-height:360px;overflow:auto}
+    .anomaly{background:rgba(255,200,200,0.3)}
+    .footer-note{margin-top:10px;color:var(--muted);font-size:0.85rem}
+    .chart-area{height:260px}
+    .btn{display:inline-block;padding:8px 10px;border-radius:8px;border:0;background:var(--accent);color:white;cursor:pointer}
+    .btn.alt{background:#eee;color:#333}
+    .hint{font-size:0.85rem;color:#444}
+    @media(max-width:980px){.grid{grid-template-columns:1fr;}.chart-area{height:200px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>CSV Analyzer — Single File</h1>
+        <p class="lead">Upload a CSV, inspect basic stats, detect anomalies (Z-score & SD) and filter rows. Works fully client-side and is GitHub Pages friendly.</p>
+      </div>
+      <div class="actions">
+        <button class="btn" id="downloadBtn" title="Download current filtered table as CSV">Download CSV</button>
+        <button class="btn alt" id="resetBtn" title="Reset everything">Reset</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <main class="card" aria-live="polite">
+        <section style="display:flex;gap:12px;align-items:center;">
+          <div style="flex:1">
+            <label class="small">CSV file (UTF-8). First row should be headers.</label>
+            <input type="file" id="fileInput" accept="text/csv" />
+            <div class="hint">Tip: If your CSV is large, wait a moment while it parses. No file leaves your browser.</div>
+          </div>
+          <div style="width:220px">
+            <label class="small">Z-score threshold (for anomalies)</label>
+            <input type="number" id="zThreshold" value="3" step="0.1" />
+            <label class="small" style="margin-top:8px">SD multiplier (mean ± k*sd)</label>
+            <input type="number" id="sdMultiplier" value="3" step="0.1" />
+          </div>
+        </section>
+
+        <hr />
+
+        <section>
+          <h3 style="margin:6px 0">Columns & Stats</h3>
+          <div class="table-wrap card" style="padding:8px;max-height:220px;overflow:auto;">
+            <table id="statsTable" aria-describedby="stats-desc"><thead><tr><th>Column</th><th>Type</th><th>Count</th><th>Missing</th><th>Mean</th><th>Median</th><th>StdDev</th><th>Min</th><th>Max</th></tr></thead><tbody></tbody></table>
+          </div>
+          <div class="footer-note">Columns detected automatically as numeric if at least 90% of non-empty values parse as numbers.</div>
+        </section>
+
+        <hr />
+
+        <section>
+          <h3 style="margin:6px 0">Data Filtering</h3>
+          <div style="display:flex;gap:8px;align-items:end">
+            <div style="flex:1">
+              <label class="small">Column</label>
+              <select id="filterColumn"></select>
+            </div>
+            <div style="width:140px">
+              <label class="small">Operator</label>
+              <select id="filterOp"><option value="eq">equals</option><option value="contains">contains</option><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="gte">&ge;</option><option value="lte">&le;</option></select>
+            </div>
+            <div style="flex:1">
+              <label class="small">Value</label>
+              <input type="text" id="filterValue" />
+            </div>
+            <div style="width:120px">
+              <button class="btn" id="applyFilter">Apply</button>
+              <button class="btn alt" id="clearFilter">Clear</button>
+            </div>
+          </div>
+        </section>
+
+        <hr />
+
+        <section>
+          <h3 style="margin:6px 0">Anomalies</h3>
+
+          <!-- Download button for Z-score anomalies only (Option B) -->
+          <button class="btn" id="downloadAnomaliesBtn" style="margin-bottom:8px;">
+            Download Z-score Anomalies
+          </button>
+
+          <div class="table-wrap" style="max-height:220px;">
+            <table id="anomalyTable"><thead><tr><th>#</th><th>Reason</th><th>Row Preview</th></tr></thead><tbody></tbody></table>
+          </div>
+        </section>
+
+        <hr />
+
+        <section>
+          <h3 style="margin:6px 0">Data Preview</h3>
+          <div class="table-wrap" id="dataPreview" style="max-height:360px;overflow:auto;">
+            <table id="dataTable"><thead></thead><tbody></tbody></table>
+          </div>
+        </section>
+
+      </main>
+
+      <aside class="card">
+        <h3 style="margin:6px 0">Visualization</h3>
+        <div class="small">Select a numeric column to visualize (histogram) and another column as grouping (optional).</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1">
+            <label class="small">Numeric column</label>
+            <select id="vizNumeric"></select>
+          </div>
+          <div style="flex:1">
+            <label class="small">Group by (optional)</label>
+            <select id="vizGroup"><option value="">— none —</option></select>
+          </div>
+        </div>
+        <div class="chart-area card" style="margin-top:10px;padding:8px;">
+          <canvas id="chartCanvas" width="400" height="260"></canvas>
+        </div>
+        <div class="footer-note">If you include Chart.js inline (or as <code>Chart</code> on the page), the tool will use it for richer charts. Otherwise a built-in lightweight renderer draws histograms and simple line plots.</div>
+      </aside>
+
+    </div>
+  </div>
+
+  <script>
+  // ------------------------------
+  // CSV Analyzer — single-file app
+  // No backend. Works client-side and is GitHub Pages friendly.
+  // - Parses CSV
+  // - Detects numeric columns
+  // - Computes basic stats
+  // - Detects anomalies by Z-score and SD multiplier
+  // - Filtering and preview
+  // - Visualization: uses Chart.js if available; otherwise a built-in renderer
+  // - Download Z-score anomalies only (Option B)
+  // ------------------------------
+
+  // Utility: CSV parsing (simple, RFC4180-ish). Handles quoted fields.
+  function parseCSV(text){
+    const rows=[];
+    let cur='';
+    let row=[];
+    let i=0, inQuotes=false;
+    while(i<text.length){
+      const ch=text[i];
+      if(inQuotes){
+        if(ch==='"'){
+          if(text[i+1]==='"'){ cur += '"'; i+=2; continue; } // escaped quote
+          inQuotes=false; i++; continue;
+        } else { cur += ch; i++; continue; }
+      }
+      if(ch==='"'){ inQuotes=true; i++; continue; }
+      if(ch===','){ row.push(cur); cur=''; i++; continue; }
+      if(ch==='\r'){ i++; continue; }
+      if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; i++; continue; }
+      cur += ch; i++;
+    }
+    // push last
+    if(cur!=='' || row.length>0) row.push(cur);
+    if(row.length>0) rows.push(row);
+    return rows;
+  }
+
+  // Stats helpers
+  function isNumeric(s){ if(s===null||s===undefined) return false; if(s==='') return false; return !isNaN(Number(s)); }
+  function toNumberSafe(s){ const n=Number(s); return isNaN(n)?null:n; }
+  function median(arr){ if(arr.length===0) return null; const a=arr.slice().sort((x,y)=>x-y); const m=Math.floor(a.length/2); return (a.length%2? a[m] : (a[m-1]+a[m])/2); }
+  function mean(arr){ if(arr.length===0) return null; return arr.reduce((s,v)=>s+v,0)/arr.length; }
+  function stddev(arr){ const m=mean(arr); if(m===null) return null; const v=arr.reduce((s,x)=>s+Math.pow(x-m,2),0)/arr.length; return Math.sqrt(v); }
+  function round(v,dec=3){ if(v===null||v===undefined||isNaN(v)) return ''; return Number(v.toFixed(dec)); }
+
+  // App state
+  const state = {
+    headers:[], rows:[], rawRows:[], cols:[], numericCols:[], stats:{}, filteredRows:null, anomalies:[] // anomalies: {rowIndex, reason (string), row}
+  };
+
+  // DOM refs
+  const fileInput=document.getElementById('fileInput');
+  const statsTable=document.getElementById('statsTable').querySelector('tbody');
+  const dataTable=document.getElementById('dataTable');
+  const dataHead=dataTable.querySelector('thead');
+  const dataBody=dataTable.querySelector('tbody');
+  const anomalyTable=document.getElementById('anomalyTable').querySelector('tbody');
+  const filterColumn=document.getElementById('filterColumn');
+  const filterOp=document.getElementById('filterOp');
+  const filterValue=document.getElementById('filterValue');
+  const applyFilterBtn=document.getElementById('applyFilter');
+  const clearFilterBtn=document.getElementById('clearFilter');
+  const zThresholdInput=document.getElementById('zThreshold');
+  const sdMultiplierInput=document.getElementById('sdMultiplier');
+  const vizNumeric=document.getElementById('vizNumeric');
+  const vizGroup=document.getElementById('vizGroup');
+  const chartCanvas=document.getElementById('chartCanvas');
+  const downloadBtn=document.getElementById('downloadBtn');
+  const resetBtn=document.getElementById('resetBtn');
+  const downloadAnomaliesBtn=document.getElementById('downloadAnomaliesBtn');
+
+  // Parse file
+  fileInput.addEventListener('change',async(e)=>{
+    const f=e.target.files[0];
+    if(!f) return;
+    const txt=await f.text();
+    const rows=parseCSV(txt.replace(/\uFEFF/g,'')); // remove BOM
+    if(rows.length===0){ alert('Empty CSV'); return; }
+    const headers=rows[0].map(h=>h.trim());
+    const dataRows=rows.slice(1).map(r=>{
+      // pad or trim to header length
+      const copy=r.slice(0,headers.length);
+      while(copy.length<headers.length) copy.push('');
+      return copy;
+    });
+    state.headers=headers; state.rawRows=rows; state.rows=dataRows; state.filteredRows=null;
+    analyze();
+  });
+
+  // Analyze and build stats
+  function analyze(){
+    const headers=state.headers; const rows=state.rows;
+    // columns
+    const cols = headers.map((h,ci)=> rows.map(r=> r[ci] ));
+    state.cols=cols;
+    // detect numeric columns: at least 90% non-empty values parse to number
+    const numericCols = [];
+    const stats = {};
+    headers.forEach((h,ci)=>{
+      const col=cols[ci];
+      const nonEmpty=col.filter(v=>v!=='' && v!==null && v!==undefined);
+      const numericCount=nonEmpty.filter(isNumeric).length;
+      const isNum = nonEmpty.length>0 ? (numericCount / nonEmpty.length) >= 0.9 : false;
+      if(isNum) numericCols.push(h);
+      // numeric values array
+      const nums=nonEmpty.map(toNumberSafe).filter(x=>x!==null);
+      stats[h]={
+        type: isNum? 'numeric' : 'text',
+        count: col.length,
+        missing: col.filter(v=>v===''||v==null||v===undefined).length,
+        mean: isNum? mean(nums) : null,
+        median: isNum? median(nums) : null,
+        std: isNum? stddev(nums) : null,
+        min: isNum? (nums.length? Math.min(...nums):null) : null,
+        max: isNum? (nums.length? Math.max(...nums):null) : null
+      };
+    });
+    state.numericCols = numericCols; state.stats = stats;
+    renderStats(); populateFilters(); renderData(); detectAnomalies(); populateVizControls(); renderChart();
+  }
+
+  function renderStats(){
+    statsTable.innerHTML='';
+    state.headers.forEach(h=>{
+      const s=state.stats[h];
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(h)}</td><td class="muted">${s.type}</td><td>${s.count}</td><td>${s.missing}</td><td>${s.mean===null?'':round(s.mean)}</td><td>${s.median===null?'':round(s.median)}</td><td>${s.std===null?'':round(s.std)}</td><td>${s.min===null?'':round(s.min)}</td><td>${s.max===null?'':round(s.max)}</td>`;
+      statsTable.appendChild(tr);
+    });
+  }
+
+  function populateFilters(){
+    // column selector
+    filterColumn.innerHTML=''; vizNumeric.innerHTML=''; vizGroup.innerHTML='';
+    state.headers.forEach(h=>{
+      const opt=document.createElement('option'); opt.value=h; opt.textContent=h; filterColumn.appendChild(opt);
+      const opt2=document.createElement('option'); opt2.value=h; opt2.textContent=h; vizGroup.appendChild(opt2);
+      const opt3=document.createElement('option'); opt3.value=h; opt3.textContent=h; vizNumeric.appendChild(opt3);
+    });
+  }
+
+  function renderData(rows=null){
+    const data = rows || state.filteredRows || state.rows;
+    // header
+    dataHead.innerHTML = '<tr>' + state.headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('') + '</tr>';
+    dataBody.innerHTML='';
+    data.forEach((r,idx)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = r.map(c=>`<td>${escapeHtml(c)}</td>`).join('');
+      dataBody.appendChild(tr);
+    });
+  }
+
+  // Filtering
+  applyFilterBtn.addEventListener('click',()=>{
+    const col=filterColumn.value; const op=filterOp.value; const val=filterValue.value;
+    if(!col){ alert('Choose column'); return; }
+    const ci=state.headers.indexOf(col);
+    let filtered = state.rows.filter(r=>{
+      const cell=r[ci];
+      if(op==='contains') return (cell||'').toString().toLowerCase().includes(val.toString().toLowerCase());
+      if(op==='eq') return (cell||'')==val;
+      // numeric ops
+      const num=toNumberSafe(cell);
+      const vnum=toNumberSafe(val);
+      if(op==='gt') return num!==null && vnum!==null && num>vnum;
+      if(op==='lt') return num!==null && vnum!==null && num<vnum;
+      if(op==='gte') return num!==null && vnum!==null && num>=vnum;
+      if(op==='lte') return num!==null && vnum!==null && num<=vnum;
+      return false;
+    });
+    state.filteredRows = filtered; renderData(); detectAnomalies(); renderChart();
+  });
+  clearFilterBtn.addEventListener('click',()=>{ state.filteredRows=null; filterValue.value=''; renderData(); detectAnomalies(); renderChart(); });
+
+  // Anomaly detection
+  function detectAnomalies(){
+    const zth = Number(zThresholdInput.value) || 3;
+    const sdMul = Number(sdMultiplierInput.value) || 3;
+    const data = state.filteredRows || state.rows;
+    const anomalies = [];
+    // Build numeric arrays per column for z-scores (use stats on full dataset, not on filtered)
+    const stats = state.stats;
+    data.forEach((r,ri)=>{
+      const issues=[];
+      state.headers.forEach((h,ci)=>{
+        if(stats[h].type!=='numeric') return;
+        const raw = r[ci]; if(raw===''||raw===null||raw===undefined) return;
+        const v = toNumberSafe(raw); if(v===null) return;
+        const meanv = stats[h].mean; const sd = stats[h].std;
+        if(sd===0 || sd===null) return;
+        const z = (v-meanv)/sd;
+        if(Math.abs(z)>=zth) issues.push(`Z=${round(z)} for ${h}`);
+        if(v > meanv + sdMul*sd || v < meanv - sdMul*sd) issues.push(`Outside mean±${sdMul}·sd for ${h}`);
+      });
+      if(issues.length) anomalies.push({rowIndex:ri, reason:issues.join('; '), row: r});
+    });
+    state.anomalies = anomalies;
+    renderAnomalies();
+  }
+
+  function renderAnomalies(){
+    anomalyTable.innerHTML='';
+    state.anomalies.forEach((a,idx)=>{
+      const tr=document.createElement('tr');
+      const preview = a.row.map((c,i)=>`${state.headers[i]}: ${c}`).slice(0,4).join(' | ');
+      tr.innerHTML = `<td>${idx+1}</td><td style="color:${a.reason.includes('Z')? 'var(--danger)':'#333'}">${escapeHtml(a.reason)}</td><td>${escapeHtml(preview)}</td>`;
+      anomalyTable.appendChild(tr);
+    });
+  }
+
+  // Visualization (histogram) — uses Chart.js if available, else a simple renderer
+  function populateVizControls(){ /* already done in populateFilters */ }
+  vizNumeric.addEventListener('change',renderChart);
+  vizGroup.addEventListener('change',renderChart);
+
+  function renderChart(){
+    const numCol = vizNumeric.value; if(!numCol) { clearCanvas(); return; }
+    const ci = state.headers.indexOf(numCol);
+    const rows = state.filteredRows || state.rows;
+    const vals = rows.map(r=>toNumberSafe(r[ci])).filter(v=>v!==null);
+    if(window.Chart){ // Chart.js available — use it
+      try{ if(window._appChart) window._appChart.destroy(); }catch(e){}
+      const ctx=chartCanvas.getContext('2d');
+      // build histogram bins
+      const bins=20; const min=Math.min(...vals); const max=Math.max(...vals); const width=(max-min)||1; const binSize=width/bins;
+      const hist=new Array(bins).fill(0);
+      vals.forEach(v=>{ const idx=Math.min(bins-1, Math.floor((v-min)/binSize)); hist[idx]++; });
+      const labels = hist.map((_,i)=>`${round(min + i*binSize,2)} - ${round(min + (i+1)*binSize,2)}`);
+      window._appChart = new Chart(ctx, {
+        type:'bar', data:{labels, datasets:[{label:numCol, data:hist, borderWidth:1}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{tooltip:{enabled:true}}}
+      });
+      return;
+    }
+    // Fallback simple renderer: histogram
+    const ctx = chartCanvas.getContext('2d');
+    // clear
+    ctx.clearRect(0,0,chartCanvas.width,chartCanvas.height);
+    if(vals.length===0){ drawCenteredText(ctx,'No numeric data', chartCanvas.width/2, chartCanvas.height/2); return; }
+    const bins=20; const min=Math.min(...vals); const max=Math.max(...vals); const width=(max-min)||1; const binSize=width/bins;
+    const hist=new Array(bins).fill(0);
+    vals.forEach(v=>{ const idx=Math.min(bins-1, Math.floor((v-min)/binSize)); hist[idx]++; });
+    const padding=36; const w=chartCanvas.width - padding*2; const h=chartCanvas.height - padding*2; const barW = w/bins - 4;
+    const maxCount=Math.max(...hist);
+    // axes
+    ctx.strokeStyle='#ddd'; ctx.beginPath(); ctx.moveTo(padding, padding); ctx.lineTo(padding, padding+h); ctx.lineTo(padding+w, padding+h); ctx.stroke();
+    // bars
+    ctx.fillStyle='#246';
+    hist.forEach((count,i)=>{
+      const x = padding + i*(barW+4) + 2;
+      const barH = (count/maxCount) * h;
+      ctx.fillRect(x, padding + h - barH, barW, barH);
+    });
+    // labels
+    ctx.fillStyle='#333'; ctx.font='12px sans-serif'; ctx.fillText(numCol, padding, 14);
+  }
+
+  function clearCanvas(){ const ctx=chartCanvas.getContext('2d'); ctx.clearRect(0,0,chartCanvas.width,chartCanvas.height); drawCenteredText(ctx,'Select a numeric column to visualize', chartCanvas.width/2, chartCanvas.height/2); }
+  function drawCenteredText(ctx,txt,x,y){ ctx.fillStyle='#666'; ctx.font='14px sans-serif'; ctx.textAlign='center'; ctx.fillText(txt,x,y); }
+
+  // Download current view as CSV
+  downloadBtn.addEventListener('click',()=>{
+    const data = state.filteredRows || state.rows;
+    if(!data || !data.length){ alert('No data to download'); return; }
+    const rows = [state.headers].concat(data);
+    const csv = rows.map(r=> r.map(cell=>`"${String(cell||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download = 'export.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+
+  // ------------------------------
+  // Download Z-score anomalies as CSV (Option B)
+  // ------------------------------
+  downloadAnomaliesBtn.addEventListener('click', ()=>{
+    // Filter anomalies that include a Z= reason (Z-score anomalies only)
+    const zAnoms = state.anomalies.filter(a => /(^|;|\s)Z=/.test(a.reason));
+    if(!zAnoms || zAnoms.length===0){
+      alert('No Z-score anomalies to download (try lowering Z threshold).');
+      return;
+    }
+
+    // Prepare rows: header includes Reason (Z-only) + all original columns
+    const headers = ['Z-reason', ...state.headers];
+    const rows = [headers];
+    zAnoms.forEach(a=>{
+      rows.push([a.reason, ...a.row]);
+    });
+
+    const csv = rows
+      .map(r => r.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "z_anomalies.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  // Reset
+  resetBtn.addEventListener('click',()=>{ location.reload(); });
+
+  // Small helper to make HTML safe
+  function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // initialize
+  clearCanvas();
+
+  // small UI nicety: recompute anomalies when thresholds change
+  zThresholdInput.addEventListener('change',()=>{ detectAnomalies(); renderAnomalies(); });
+  sdMultiplierInput.addEventListener('change',()=>{ detectAnomalies(); renderAnomalies(); });
+
+  // Accessibility / keyboard
+  filterValue.addEventListener('keyup', e=>{ if(e.key==='Enter') applyFilterBtn.click(); });
+
+  </script>
+</body>
+</html>
